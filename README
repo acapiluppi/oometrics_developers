@@ -1,0 +1,68 @@
+There are few steps to perform, each with some pre-requisite tool:
+1) cloning repositories
+2) storing metadata via CVSAnaly2
+3) evaluating SLOCs
+4) extracting OO metrics (via SciTools Understand) 
+5) evaluating contributors
+    5.1) removing duplicates
+    5.2) extracting distinct Java files worked on by each contributor
+    5.3) evaluating Top, Middle and Bottom developers
+6) collating OO data and authors data
+
+================================================================================================================
+
+# GIT CLONE + CVSANALY2 (Requires cvsanaly2)
+mysql> CREATE DATABASE DB_ALL;
+
+$ for i in {1..30}; do wget -O $i.txt https://github.com/search?o=desc&amp;p=$i&amp;q=java&amp;s=forks&amp;type=Repositories && sleep 200; done
+$ for i in *txt; do grep "\<a class\=\"v-align\-middle\" data\-hydro\-click\=" $i | awk -F';' '{print $34}' | sed s/\&quot// >> list; done
+$ for i in `cat list`; do proj=`basename "$i"` && printf "*** NOW DOING $proj\n" && git clone $i && cvsanaly2 -u XXX -p YYY -d DB_ALL $proj && find ./$proj -type f ! -name '*.java' -delete; done
+
+# SLOCs (Requires cloc)
+$ for i in `cat list`; do basename $i >> all; done
+$ IFS=$'\n'
+$ for i in `cat all`; do find ./$i -name \"*.java\" > $i/all_source_files.txt; done
+$ for i in `cat all`; do for j in `cat $i/all_source_files.txt`; do printf "$j," >> $i/SLOCS_$i.txt && cloc $j | grep Java | awk '{print $5}' >> $i/SLOCS_$i.txt; done; done
+$ for i in `cat all`; do sed "s/\.\/$i\///g" <ALLPROJ/$i/SLOCS_$i.txt >> ALL_SLOCs.txt; done
+
+# OO Metrics
+$ for i in `cat all`; do ./prova-OO_METRICS.pl $i; done
+$ for i in `cat all`; do mv $i/$i-CK-ClassMetrics.txt CK-Metrics; done
+$ for i in `cat all`; do ./prova_CLEAN_OO.pl CK-Metrics/$i-CK-ClassMetrics.txt >> sql_oo.csv; done
+
+mysql> LOAD DATA LOCAL INFILE "sql_oo.csv" INTO TABLE oo FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n';
+
+### AUTHORS
+$ for i in `cat all`; do ./prova_AUTHOR_RECONCILIATION-FORKS.pl $i; done
+$ for i in `cat all`; do ./prova_MULTIPLE_AUTHORS.pl $i; done
+$ for i in `cat all`; do cat Authors/Authors_$i.txt >> sql_Authors-intermediate.csv; done
+$ awk 'BEGIN { FS = OFS = ","; } FNR == NR { x[$1] = $2; next; } { if ($1 in x) { $1 = x[$1]; } } 1' repo_ID.csv sql_Authors-intermediate.csv >> sql_repoID_fileID_filename_authors.csv
+
+mysql> LOAD DATA LOCAL INFILE "sql_repoID_fileID_filename_authors.csv" INTO TABLE projID_fileID_filepath_authors FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n';
+
+mysql> select projectID, filepath, max(aurthors) from projID_fileID_filepath_authors group by projectID, filepath into outfile '/tmp/sql_Authors.csv' FIELDS TERMINATED BY ',';
+
+mysql> LOAD DATA LOCAL INFILE "/tmp/sql_Authors.csv" INTO TABLE authorsTable FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n';
+
+## JOIN
+mysql> select projID, oo.classname, oo.fullpath , authors, IFANIN,CBO,NOC,NIM,NIV,WMC,RFC,DIT,LCOM from oo, authorsTable where oo.fullpath = authorsTable.fullpath into outfile '/var/lib/mysql-files/results_Forks.tab';
+
+### TD, MD, BD
+$ for i in `cat repoID`; do ./prova_TD_MD_BD.pl $i >> Developers_TOP_MIDDLE_BOTTOM.txt; done
+
+### SLOCS
+mysql> select results.*, SLOCS.slocs from results, SLOCS where results.fullpath = SLOCS.filepath into outfile '/tmp/results_plus_slocs.csv' FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n';
+mysql> LOAD DATA LOCAL INFILE "Developers_TOP_MIDDLE_BOTTOM.txt" INTO TABLE TDMDBD FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n';
+
+$ for i in `cat repoID`; do ./prova_REPO_AUT_TYPE_FILE.pl $i >> projID_authorID_type_file_ID.csv; done
+
+$ prova_SINGLETONS projID_authorID_type_file_ID.csv y
+
+$ awk -F',' '{print $4}' projID_authorID_type_file_ID.csv > all_fileIDs.txt
+
+$ for i in `cat all_fileIDs.txt`; do printf "$i," >> RESULTS_easy-short.csv && grep ",$i$" projID_authorID_type_file_ID.csv | grep -c TD  | tr -d "\n"  >> RESULTS_easy-short.csv && printf ","  >> RESULTS_easy-short.csv && grep ",$i$" projID_authorID_type_file_ID.csv | grep -c MD  | tr -d "\n"  >> RESULTS_easy-short.csv && printf ","  >> RESULTS_easy-short.csv && grep ",$i$" projID_authorID_type_file_ID.csv | grep -c BD  >> RESULTS_easy-short.csv; done
+        
+mysql> select projID, classname, fullpath, fileID_TD_MD_BD.fileID, authors, IFANIN,CBO,NOC,NIM,NIV,WMC,RFC,DIT,LCOM,TD,MD,BD from results, fileID_TD_MD_BD, projID_fileID_filepath_authors where results.fullpath = projID_fileID_filepath_authors.filepath AND projID_fileID_filepath_authors.fileID = fileID_TD_MD_BD.fileID;
+
+## COLLATE OO metrics and SLOCS metrics
+$ ./bash_COLLATE_OO_SLOCs.sh > results_Forks_SLOCS.csv
