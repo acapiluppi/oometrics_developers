@@ -1,5 +1,7 @@
 #!/usr/bin/perl -w
 
+# A Capiluppi 2019
+
 use DBI;
 use Text::Unidecode;
 use Encode qw( decode_utf8 );
