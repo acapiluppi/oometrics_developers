@@ -1,0 +1,29 @@
+#!/usr/bin/perl -w
+
+$file_read = $ARGV[0]|| die "\nUsage: prova_SINGLETONS <name_text_file>\n\n";
+$file_write = $file_read;
+$file_write =~ s/\.txt//;
+$file_write = $file_write."_SINGLETONS.txt";
+
+open IN, "< $file_read";
+open OUT, "> $file_write";
+
+my %seen;
+foreach $a(<IN>){
+	chomp ($a);
+	if (!$seen{$a}++) {
+		push (@vector, $a."\n");
+	}
+}
+
+@vector_ordered = sort (@vector);
+foreach $v(@vector_ordered){
+	chomp $v;
+	print OUT $v."\n";
+}
+
+$in = $ARGV[1];
+chomp $in;
+if ($in eq "y"){
+	`mv $file_write $file_read`;
+} else {}
