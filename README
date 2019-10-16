@@ -1,3 +1,7 @@
+This README should allow the replication top to end of the approach to extract OO metrics and developers
+It is a combination of bash commands (starting with '$') and mysql commands (starting with 'mysql>')
+================================================================================================================
+
 There are few steps to perform, each with some pre-requisite tool:
 1) cloning repositories
 2) storing metadata via CVSAnaly2
@@ -12,18 +16,24 @@ There are few steps to perform, each with some pre-requisite tool:
 ================================================================================================================
 
 # GIT CLONE + CVSANALY2 (Requires cvsanaly2)
+
 mysql> CREATE DATABASE DB_ALL;
 
 $ for i in {1..30}; do wget -O $i.txt https://github.com/search?o=desc&amp;p=$i&amp;q=java&amp;s=forks&amp;type=Repositories && sleep 200; done
 $ for i in *txt; do grep "\<a class\=\"v-align\-middle\" data\-hydro\-click\=" $i | awk -F';' '{print $34}' | sed s/\&quot// >> list; done
 $ for i in `cat list`; do proj=`basename "$i"` && printf "*** NOW DOING $proj\n" && git clone $i && cvsanaly2 -u XXX -p YYY -d DB_ALL $proj && find ./$proj -type f ! -name '*.java' -delete; done
+$ for i in `cat all`; do mysql --user=XXX --password=YYY newSamplingForks --skip-column-names -s -e "SELECT name,id FROM repositories WHERE name='$i';" >> repo_ID.csv; done
 
 # SLOCs (Requires cloc)
+
 $ for i in `cat list`; do basename $i >> all; done
 $ IFS=$'\n'
 $ for i in `cat all`; do find ./$i -name \"*.java\" > $i/all_source_files.txt; done
 $ for i in `cat all`; do for j in `cat $i/all_source_files.txt`; do printf "$j," >> $i/SLOCS_$i.txt && cloc $j | grep Java | awk '{print $5}' >> $i/SLOCS_$i.txt; done; done
 $ for i in `cat all`; do sed "s/\.\/$i\///g" <ALLPROJ/$i/SLOCS_$i.txt >> ALL_SLOCs.txt; done
+
+mysql > CREATE TABLE `SLOCS` ( `filepath` text, `slocs` int(11) DEFAULT NULL ) ENGINE=InnoDB DEFAULT CHARSET=latin1;
+mysql > LOAD DATA LOCAL INFILE "ALL_SLOCs.txt" INTO TABLE SLOCS FIELDS TERMINATED BY ',' LINES TERMINATED BY '\n';
 
 # OO Metrics
 $ for i in `cat all`; do ./prova-OO_METRICS.pl $i; done
